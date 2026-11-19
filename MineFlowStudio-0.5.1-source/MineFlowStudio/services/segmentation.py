@@ -99,7 +99,7 @@ def build_segments(axes, polygons, config, log: IssueLog, task):
                               line_role=role, numbering_blocked_source=axis.numbering_blocked)
             if config.link_rule == "explicit" and len(parts) == 1:
                 item.pair = axis.pair
-            if reason:
+            if reason and axis.length is not None and not (config.split_rule=="whole" and not cat):
                 log.add("Внимание", "segment_review", f"{item.id} · {reason}", axis.refs)
             current.append(item)
         if len(current) > 1 and axis.length is not None:

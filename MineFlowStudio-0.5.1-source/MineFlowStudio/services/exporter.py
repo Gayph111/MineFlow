@@ -1,5 +1,6 @@
 from dataclasses import asdict
 from io import BytesIO
+from math import isfinite
 import json
 import os
 from pathlib import Path
@@ -20,11 +21,19 @@ HEADER_TEXT = Font(bold=True, color="FFFFFF")
 STRIPE = PatternFill("solid", fgColor="F2F6FA")
 
 
+
+def preserve_float(cell,value):
+    if isinstance(value,float) and isfinite(value):
+        cell.value=repr(float(value))
+        cell.data_type="n"
+
+
 def write_values(ws, row, values, header=False, stripe=False):
     for col, value in enumerate(values, 1):
         if value is None and not stripe:
             continue
         cell = ws.cell(row, col, CellRichText([""]) if value == "" else value)
+        preserve_float(cell,value)
         if isinstance(value, str):
             cell.data_type = "s"
         if header:
@@ -69,6 +78,7 @@ def original_workbook(result, task):
                 for col_index, value in enumerate(row, 1):
                     if value == "":
                         sheet.cell(row_index, col_index).value = CellRichText([""])
+                    preserve_float(sheet.cell(row_index,col_index),value)
         return book
 
     book = Workbook()

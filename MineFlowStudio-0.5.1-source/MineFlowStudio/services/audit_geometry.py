@@ -3,6 +3,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from math import isfinite, sqrt
+from decimal import Decimal, InvalidOperation
 
 from domain.models import ColumnMap, SheetData
 
@@ -72,7 +73,19 @@ def audit_groups(sheet: SheetData, mapping: ColumnMap, config) -> dict[str, Grou
         if not any(text(value) for value in row):
             continue
         body = text(value_at(row, mapping.body))
-        level = text(value_at(row, mapping.horizon)) or text(value_at(row, mapping.rl))
+        declared=value_at(row,mapping.horizon)
+        elevation=mapping.horizon==mapping.rl or not text(declared)
+        level=text(value_at(row,mapping.rl) if elevation else declared)
+        if elevation:
+            try:
+                decimal=Decimal(level.replace(",","."))
+                if decimal.is_finite() and abs(decimal)<=Decimal("1e15"):
+                    value=decimal.quantize(Decimal(1).scaleb(-8))
+                    level=(str(value.normalize()) if value else "0")
+                    if "E" in level:
+                        level=format(value,"f").rstrip("0").rstrip(".")
+            except InvalidOperation:
+                pass
         group = text(value_at(row, mapping.group)) or f"Строка {i} (без ключа)"
         groups[level, body, group].append((i, row))
 

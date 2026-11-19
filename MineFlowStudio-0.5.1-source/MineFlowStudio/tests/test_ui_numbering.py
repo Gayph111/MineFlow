@@ -32,6 +32,13 @@ def test_common_axis_badges_are_separate_after_zoom_pan_resize(app):
     view.resize(720,480)
     view.show()
     view.populate(objects,[],set())
+    from time import monotonic
+    from PySide6.QtTest import QTest
+    deadline=monotonic()+5
+    while view.pending is not None and monotonic()<deadline:
+        app.processEvents()
+        QTest.qWait(1)
+    assert view.pending is None
     app.processEvents()
     assert len(view.labels) == 18
     for action in (lambda:None,lambda:view.zoom(1.8),lambda:view.resize(500,360),

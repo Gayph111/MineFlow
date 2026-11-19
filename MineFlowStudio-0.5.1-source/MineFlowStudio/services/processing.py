@@ -11,7 +11,7 @@ from services.importer import cell, present
 from services.numbering import assign_axis_numbers, link_pairs
 from services.segmentation import build_segments
 from services.task import Task
-from services.validation import IssueLog, as_text, category, numeric
+from services.validation import IssueLog, as_text, category, numeric, horizon_key
 
 
 @dataclass(frozen=True)
@@ -129,12 +129,12 @@ def process(source: WorkbookData, config: ProcessingConfig, task: Task | None = 
         if len(matches) == 1 and not invalid_match and not missing:
             polygon_by_axis[item.id] = matches[0]
             item.spatial = spatial_relation(item, matches[0])
-            if "границ" in item.spatial or "касанием" in item.spatial:
+            if config.split_rule=="whole" and ("границ" in item.spatial or "касанием" in item.spatial):
                 log.add("Внимание", "boundary", f"{item.spatial}. Решение по категории требует проверки", refs)
         elif config.classification == "geometry":
             log.add("Внимание", "contour_match", "Нет однозначного валидного контура для тела и горизонта", refs)
         item.category = classifier.assign(item, log)
-        if not item.category:
+        if not item.category and config.split_rule=="whole":
             log.add("Внимание", "category", "Категория Порода или Руда не определена", refs)
 
     task.report(92, "Проверка пар и пробная нумерация")
@@ -167,7 +167,9 @@ def collect(source: WorkbookData, mapping: ColumnMap, log: IssueLog, task: Task)
         group = as_text(cell(row, mapping.group))
         body = as_text(cell(row, mapping.body))
         rl_value = cell(row, mapping.rl)
-        horizon = as_text(cell(row, mapping.horizon)) or as_text(rl_value)
+        declared=cell(row,mapping.horizon)
+        from_elevation=mapping.horizon==mapping.rl or not present(declared)
+        horizon=horizon_key(rl_value if from_elevation else declared,elevation=from_elevation)
         if not horizon:
             log.add("Ошибка", "horizon", "Пустой горизонт и RL", (ref,))
         if not group:
