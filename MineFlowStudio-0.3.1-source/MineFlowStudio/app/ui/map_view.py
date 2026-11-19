@@ -1,9 +1,10 @@
+from html import escape
 from math import ceil, floor, log10
 from time import perf_counter
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QBrush
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsView, QToolTip
 
 from app.ui.style import BG, ERROR, MUTED, ORE, PRIMARY, SUCCESS, TEXT
 
@@ -45,8 +46,15 @@ class MapView(QGraphicsView):
         self.render_timer.setSingleShot(True)
         self.render_timer.timeout.connect(self.draw_batch)
         self.pending = None
+        self.hover_id = ""
+        self.hover_position = QPoint()
+        self.hover_timer = QTimer(self)
+        self.hover_timer.setSingleShot(True)
+        self.hover_timer.setInterval(180)
+        self.hover_timer.timeout.connect(self.show_hover)
 
     def clear_map(self):
+        self.hide_hover()
         self.render_timer.stop()
         self.pending = None
         self.setUpdatesEnabled(True)
@@ -99,7 +107,7 @@ class MapView(QGraphicsView):
             path = self.make_path(obj.parts)
             item = self.scene().addPath(path, self.pen(QColor(GRAPH_COLORS[obj.category]), 2.1))
             item.setData(0, obj.id)
-            item.setToolTip(f"{obj.id} · группа {obj.group}\n{obj.refs[0]}")
+            item.setToolTip(self.tooltip_text(obj))
             self.lines[obj.id] = item, obj
             self.restyle(obj.id)
             item.setVisible(self.layers["objects"])
@@ -111,6 +119,7 @@ class MapView(QGraphicsView):
                 marker.setZValue(3)
                 marker.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
                 marker.setData(0, obj.id)
+                marker.setToolTip(self.tooltip_text(obj))
                 marker.setVisible(self.layers["numbers"] and self.layers["objects"])
                 self.labels.append(marker)
             yield
@@ -163,6 +172,7 @@ class MapView(QGraphicsView):
         return p
 
     def set_layers(self, **layers):
+        self.hide_hover()
         self.layers.update(layers)
         for item in self.outlines:
             item.setVisible(self.layers["contours"])
@@ -195,6 +205,7 @@ class MapView(QGraphicsView):
         self.fitInView(self.bounds, Qt.AspectRatioMode.KeepAspectRatio)
 
     def zoom(self, factor):
+        self.hide_hover()
         effective = abs(self.transform().m11()) * factor
         if 1e-9 < effective < 1e6:
             self.scale(factor, factor)
@@ -246,11 +257,71 @@ class MapView(QGraphicsView):
 
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
-        self.cursor_at.emit(*self.to_world(self.mapToScene(event.position().toPoint())))
+        position = event.position().toPoint()
+        self.cursor_at.emit(*self.to_world(self.mapToScene(position)))
+        if event.buttons() or self.pick_start:
+            self.hide_hover()
+            return
+        item_id = self.object_at(position)
+        self.hover_position = position
+        if item_id != self.hover_id:
+            self.hide_hover()
+            self.hover_id = item_id
+            if item_id:
+                self.hover_timer.start()
 
     def mousePressEvent(self, event):
+        self.hide_hover()
         self.press_pos = event.position().toPoint()
         super().mousePressEvent(event)
+
+    @staticmethod
+    def tooltip_text(obj):
+        number = str(obj.display_number) if obj.display_number is not None else "Не присвоен"
+        return (
+            '<p style="white-space:pre; margin:0">'
+            f'<span style="color:#AFC5D9">JOIN</span>  <b>{escape(obj.group)}</b><br>'
+            '<span style="color:#AFC5D9">Порядковый номер</span>  '
+            f'<b>{escape(number)}</b></p>'
+        )
+
+    def object_at(self, position, radius=5):
+        for item in self.items(position.x() - radius, position.y() - radius, radius * 2, radius * 2):
+            key = item.data(0)
+            if key in self.lines and item.isVisible():
+                return key
+        return ""
+
+    def show_hover(self):
+        if self.hover_id not in self.lines or self.pick_start:
+            return
+        item, obj = self.lines[self.hover_id]
+        if item.isVisible() and self.object_at(self.hover_position) == self.hover_id:
+            QToolTip.showText(
+                self.viewport().mapToGlobal(self.hover_position) + QPoint(14, 18),
+                self.tooltip_text(obj),
+                self.viewport(),
+            )
+
+    def hide_hover(self):
+        self.hover_timer.stop()
+        self.hover_id = ""
+        QToolTip.hideText()
+
+    def viewportEvent(self, event):
+        if event.type() == QEvent.Type.Leave:
+            self.hide_hover()
+        elif event.type() == QEvent.Type.ToolTip:
+            if self.pick_start:
+                return True
+            self.hover_position = event.pos()
+            self.hover_id = self.object_at(event.pos())
+            if self.hover_id:
+                self.show_hover()
+            else:
+                self.hide_hover()
+            return True
+        return super().viewportEvent(event)
 
     def mouseReleaseEvent(self, event):
         pos = event.position().toPoint()
@@ -261,8 +332,7 @@ class MapView(QGraphicsView):
             self.pick_start = False
             self.start_picked.emit(*self.to_world(self.mapToScene(pos)))
             return
-        for item in self.items(pos.x() - 6, pos.y() - 6, 12, 12):
-            if item.data(0):
-                self.picked.emit(item.data(0))
-                break
+        item_id = self.object_at(pos, radius=6)
+        if item_id:
+            self.picked.emit(item_id)
 

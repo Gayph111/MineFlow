@@ -302,10 +302,8 @@ class SpatialPage(QWidget):
                     and (shape.body, shape.horizon) in chosen_scopes]
         visible_axes = [(shape, self.by_id[shape.id]) for shape in self.geometry[0] if shape.id in visible]
         self.scene.labels = checked("labels")
-        labels = [(e.id, e.display_mark, e.display_number) for _, e in visible_axes if e.display_mark]
-        use_compact = len(labels) > 8
-        self.scene.draw(visible_axes, outlines, {key: str(number) if use_compact and number is not None else mark
-                                                for key, mark, number in labels},
+        labels = {e.id: str(e.display_number) for _, e in visible_axes if e.display_number is not None}
+        self.scene.draw(visible_axes, outlines, labels,
                         alerts if checked("issues") else set(), errors if checked("issues") else set(),
                         checked("links"), reset=reset)
         affected = sum(shape.unplaced for shape, _ in [*visible_axes, *outlines])

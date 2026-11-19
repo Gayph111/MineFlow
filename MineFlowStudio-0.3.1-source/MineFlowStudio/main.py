@@ -14,6 +14,7 @@ def main() -> int:
     os.environ["QT_API"] = "pyside6"
     app = QApplication(sys.argv)
     app.setApplicationName("MineFlow Studio")
+    app.setApplicationVersion("0.3.1")
     app.setStyle("Fusion")
     app.setStyleSheet(STYLES)
     window = MainWindow()

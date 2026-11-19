@@ -11,7 +11,7 @@ from vtkmodules.vtkRenderingCore import vtkCellPicker
 from app.ui.style import BG, ERROR, ORE, PRIMARY, SUCCESS, TEXT
 
 STEEL = "#99B2C9"
-GRID = "#647D94"
+GRID = "#7E98B1"
 WARNING = "#F5CE8B"
 
 
@@ -45,7 +45,7 @@ class VtkScene(QtInteractor):
 
     def __init__(self, parent=None):
         super().__init__(parent=parent, auto_update=0, multi_samples=4, line_smoothing=True)
-        self.set_background(BG)
+        self.set_background(BG, top="#1A293A")
         self.enable_trackball_style()
         self.enable_parallel_projection()
         self.picker = vtkCellPicker()
@@ -59,6 +59,7 @@ class VtkScene(QtInteractor):
         self.shapes = {}
         self.markers = {}
         self.show_axes()
+        self.renderer.axes_widget.SetViewport(0.015, 0.015, 0.13, 0.16)
         self.setMinimumSize(200, 180)
 
     def mousePressEvent(self, event):
@@ -109,9 +110,9 @@ class VtkScene(QtInteractor):
             if mesh is not None:
                 self.meshes[role, color] = mesh
                 self.add_mesh(mesh, color=color, name=f"{role}-{color}", lighting=False, preference="cell",
-                              line_width=2.35 if role == "object" else 1.4,
-                              opacity=1.0 if role == "object" else 0.8, point_size=8,
-                              render_points_as_spheres=False, pickable=role == "object", render=False,
+                              line_width=2.2 if role == "object" else 1.45,
+                              opacity=1.0 if role == "object" else 0.75, point_size=7,
+                              render_points_as_spheres=True, pickable=role == "object", render=False,
                               reset_camera=False)
         if show_relations:
             links = set()
@@ -126,7 +127,7 @@ class VtkScene(QtInteractor):
                     candidates = [(x, y) for x in endpoints[0] for y in endpoints[1]]
                     endpoints = min(candidates, key=lambda pair: sum((a - b) ** 2 for a, b in zip(*pair)))
                     paths.append((endpoints[0],) if endpoints[0] == endpoints[1] else endpoints)
-            self.add_paths(paths, SUCCESS, "explicit-links", 2.6, opacity=0.75)
+            self.add_paths(paths, SUCCESS, "explicit-links", 2.2, opacity=0.85, point_size=5)
         self.draw_labels()
         self.rebuild_grid()
         if self.meshes and reset:
@@ -137,21 +138,38 @@ class VtkScene(QtInteractor):
             self.reset_camera_clipping_range()
         self.render()
 
-    def add_paths(self, paths, color, name, width, opacity=1.0):
+    def add_paths(self, paths, color, name, width, opacity=1.0, point_size=8):
         mesh = packed_mesh(((paths, -1),))
         if mesh is None:
             return None
         return self.add_mesh(mesh, name=name, color=color, lighting=False, line_width=width,
-                             point_size=11, opacity=opacity, pickable=False, render=False, reset_camera=False)
+                             point_size=point_size, render_points_as_spheres=True, opacity=opacity,
+                             pickable=False, render=False, reset_camera=False)
+
+    @staticmethod
+    def label_position(paths):
+        path = max(paths, key=len)
+        points = np.asarray(path)
+        if len(points) == 1:
+            return points[0]
+        lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
+        distance = np.cumsum(lengths)
+        halfway = distance[-1] / 2
+        segment = min(int(np.searchsorted(distance, halfway)), len(lengths) - 1)
+        if lengths[segment] == 0:
+            return points[segment]
+        previous = distance[segment - 1] if segment else 0
+        fraction = (halfway - previous) / lengths[segment]
+        return points[segment] + fraction * (points[segment + 1] - points[segment])
 
     def draw_labels(self):
         self.remove_actor("numbers", render=False)
-        displayed = [(self.shapes[k].paths[0][0], value) for k, value in self.markers.items()
+        displayed = [(self.label_position(self.shapes[k].paths), value) for k, value in self.markers.items()
                      if k in self.shapes and self.shapes[k].paths]
         if displayed and self.labels:
             font = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "Fonts" / "segoeui.ttf"
             self.add_point_labels([p for p, _ in displayed], [value for _, value in displayed],
-                                  name="numbers", font_size=12, text_color=TEXT, shape=None,
+                                  name="numbers", font_size=11, bold=False, text_color="#D8E9F7", shape=None,
                                   font_file=str(font) if font.exists() else None,
                                   point_size=0, show_points=False, always_visible=False,
                                   pickable=False, render=False, reset_camera=False)
@@ -159,10 +177,19 @@ class VtkScene(QtInteractor):
     def rebuild_grid(self):
         self.remove_bounds_axes()
         if self.grid and self.meshes:
-            self.show_bounds(grid="back", location="outer", color=GRID, font_size=10, use_2d=True,
-                             xtitle="EAST", ytitle="NORTH", ztitle="RL", fmt="%.1f",
-                             n_xlabels=4, n_ylabels=4, n_zlabels=6, bold=False,
-                             show_zlabels=True, all_edges=False)
+            axes = self.show_bounds(
+                grid="back", location="outer", color=GRID, font_size=9, use_2d=True,
+                use_3d_text=False, xtitle="EAST", ytitle="NORTH", ztitle="RL", fmt="%.0f",
+                n_xlabels=3, n_ylabels=3, n_zlabels=4, bold=False, all_edges=False, render=False,
+            )
+            axes.SetScreenSize(8)
+            axes.SetZAxisVisibility(True)
+            for axis in range(3):
+                axes.GetTitleTextProperty(axis).SetFontSize(10)
+                axes.GetLabelTextProperty(axis).SetFontSize(9)
+            for direction in ("X", "Y", "Z"):
+                getattr(axes, f"Get{direction}AxesGridlinesProperty")().SetColor(0.19, 0.27, 0.35)
+                getattr(axes, f"Get{direction}AxesLinesProperty")().SetColor(0.29, 0.39, 0.48)
 
     def fit_all(self, render=True):
         if not self.meshes:
